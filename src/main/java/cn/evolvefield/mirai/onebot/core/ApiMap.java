@@ -246,9 +246,8 @@ public class ApiMap {
 
         var group = bot.getGroupOrFail(targetGroupId);
         var messageChain = OnebotMsgParser.messageToMiraiMessageChains(bot, group, messages, raw);
-        if (messageChain != null && !messageChain.contentToString().isEmpty()) {
-            var send = messageChain.contentToString();
-            var receipt = group.sendMessage(send);
+        if (messageChain != null) {
+            var receipt = group.sendMessage(messageChain);
             cachedSourceQueue.add(receipt.getSource());
             return new MessageResponse(DataBaseUtils.toMessageId(receipt.getSource().getInternalIds(), bot.getId(), receipt.getSource().getFromId()));
         } else {
@@ -271,9 +270,8 @@ public class ApiMap {
             contact = bot.getGroupOrFail(fromGroupId).getOrFail(targetQQId);
         }
         var messageChain = OnebotMsgParser.messageToMiraiMessageChains(bot, contact, messages, raw);
-        if (messageChain != null && !messageChain.contentToString().isEmpty()) {
-            var send = messageChain.contentToString();
-            var receipt = contact.sendMessage(send);
+        if (messageChain != null) {
+            var receipt = contact.sendMessage(messageChain);
             cachedSourceQueue.add(receipt.getSource());
             return new MessageResponse(DataBaseUtils.toMessageId(receipt.getSource().getInternalIds(), bot.getId(), receipt.getSource().getFromId()));
         } else {

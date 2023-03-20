@@ -1,16 +1,23 @@
 package cn.evolvefield.mirai.onebot.util;
 
 import cn.evolvefield.mirai.onebot.OneBotMirai;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import net.mamoe.mirai.Bot;
 import net.mamoe.mirai.contact.Contact;
 import net.mamoe.mirai.contact.Group;
 import net.mamoe.mirai.message.data.*;
+import net.mamoe.mirai.utils.ExternalResource;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import java.util.Base64;
+import java.util.Base64.Decoder;
 
 /**
  * Description:
@@ -24,26 +31,12 @@ public class OnebotMsgParser {
     private static final PlainText MSG_EMPTY = new PlainText("");
 
     public static MessageChain messageToMiraiMessageChains(Bot bot, Contact contact, Object message, boolean raw){
-        if (message instanceof String s){
-            return new MessageChainBuilder().append(new PlainText(s)).build();
-        }
-        else if (message instanceof JSONObject jsonObject) {
-            try {
-                var data = jsonObject.getJSONObject("data");
-                if (jsonObject.getJSONObject("type") != null){
-                    if (data.containsKey("text"))
-                        return new MessageChainBuilder().append(new PlainText(data.getJSONObject("text").toString())).build();
-                    else return new MessageChainBuilder().append(textToMessageInternal(bot, contact, message)).build();
-                }
-            } catch (NullPointerException e) {
-                OneBotMirai.logger.warning("Got null when parsing CQ message object");
-                return null;
-            }
-        }
-        return null;
+
+        MessageChain msg = textToMessageInternal(bot,contact,message);
+        return msg;
     }
 
-     public static String toCQString(SingleMessage message){
+    public static String toCQString(SingleMessage message){
         if (message instanceof PlainText text) return escape(text.getContent());
 
         else if (message instanceof At at) return "[CQ:at,qq=" +at.getTarget() + "]";
@@ -78,62 +71,45 @@ public class OnebotMsgParser {
 
     }
 
+    private static Matcher regexMatcher(String regex, String text) {
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(text);
+        if (matcher.matches()) {
+            return matcher;
+        } else {
+            return null;
+        }
+    }
 
+    private static JSONArray stringToMsgChain(String msg) {
+        String CQ_CODE_SPLIT = "(?<=\\[CQ:[^]]{1,99999}])|(?=\\[CQ:[^]]{1,99999}])";
+        String CQ_CODE_REGEX = "\\[CQ:([^,\\[\\]]+)((?:,[^,=\\[\\]]+=[^,\\[\\]]*)*)]";
+        var array = new JSONArray();
+        try {
+            Arrays.stream(msg.split(CQ_CODE_SPLIT)).filter(s -> !s.isEmpty()).forEach(s -> {
+                var matcher = regexMatcher(CQ_CODE_REGEX, s);
+                var object = new JSONObject();
+                var params = new JSONObject();
+                if (matcher == null) {
+                    object.put("type","text");
+                    params.put("text", s);
+                } else {
+                    object.put("type", matcher.group(1));
+                    Arrays.stream(matcher.group(2).split(",")).filter(args -> !args.isEmpty()).forEach(args -> {
+                        var k = args.substring(0, args.indexOf("="));
+                        var v = unescape(args.substring(args.indexOf("=") + 1));
+                        params.put(k, v);
+                    });
+                }
+                object.put("data", params);
+                array.add(object);
+            });
+        } catch (Exception e) {
+            return null;
+        }
+        return array;
+    }
 
-
-//    private static MessageChain codeToChain(Bot bot, String message, Contact contact){
-//        AtomicReference<Message> msg = new AtomicReference<>();
-//        PlainText text = new PlainText("");
-//        if (message.contains("[CQ:")) {
-//            final boolean[] interpreting = {false};
-//            var sb = new StringBuilder();
-//            final int[] index = {0};
-//            List.of(message).forEach(
-//                    c -> {
-//                        if ("[".equals(c)) {
-//                            if (interpreting[0]) {
-//                                OneBotMirai.logger.error(String.format("CQ消息解析失败：%s，索引：%s", message, Arrays.toString(index)));
-//                                return;
-//                            } else {
-//                                interpreting[0] = true;
-//                                if (!sb.isEmpty()) {
-//                                    var lastMsg = sb.toString();
-//                                    sb.delete(0, sb.length());
-//                                    msg.set(textToMessageInternal(bot, contact, lastMsg));
-//                                }
-//                                sb.append(c);
-//                            }
-//                        } else if ("]".equals(c)) {
-//                            if (!interpreting[0]) {
-//                                OneBotMirai.logger.error(String.format("CQ消息解析失败：%s，索引：%s", message, Arrays.toString(index)));
-//                                return;
-//                            } else {
-//                                interpreting[0] = false;
-//                                sb.append(c);
-//                                if (!sb.isEmpty()) {
-//                                    var lastMsg = sb.toString();
-//                                    sb.delete(0, sb.length());
-//                                    msg.set(textToMessageInternal(bot, contact, lastMsg));
-//                                }
-//                            }
-//                        } else {
-//                            sb.append(c);
-//                        }
-//                        index[0]++;
-//                    }
-//            );
-//            if (!sb.isEmpty()) {
-//               msg.set(textToMessageInternal(bot, contact, sb.toString()));
-//            }
-//        } else {
-//          text = new PlainText(unescape(message));
-//        }
-//        return new MessageChainBuilder()
-//                .append(msg.get())
-//                .append(text)
-//                .build();
-//    }
-//
 
     private static String escape(String msg){
         return msg.replace("&", "&amp;")
@@ -161,29 +137,33 @@ public class OnebotMsgParser {
         return map;
     }
 
-    private static Message textToMessageInternal(Bot bot, Contact contact, Object message){
-        if (message instanceof String msg){
-            if (msg.startsWith("[CQ:") && msg.endsWith("]")) {
-                var parts = msg.substring(4, msg.length() - 1).split(",",  2);
+    private static MessageChain textToMessageInternal(Bot bot, Contact contact, Object messages){
+        if (messages instanceof String msgs){
+            //OneBotMirai.logger.warning("字符串消息");
+            MessageChainBuilder msgChainBuilder = new MessageChainBuilder();
+            JSONArray jsonArray = stringToMsgChain(msgs);
+            for (Object msg:jsonArray) {
 
-                HashMap<String, String> args;
-                if (parts.length == 2) {
-                    args = toMap(parts[1]);
-                } else {
-                   args = new HashMap<>();
-                }
-                return convertToMiraiMessage(bot, contact, parts[0], args);
+                Message msg_t = convertToMiraiMessage(bot,contact, (String) ((JSONObject)msg).get("type"), (Map<String, String>) ((JSONObject)msg).get("data"));
+                //OneBotMirai.logger.warning("增加:"+msg_t);
+                msgChainBuilder.append(msg_t);
             }
-            return new PlainText(unescape(msg));
+            var msgChain = msgChainBuilder.build();
+            //OneBotMirai.logger.warning("返回："+msgChain);
+            return msgChain;
         }
-        else if (message instanceof JSONObject jsonObject){
-            var type = jsonObject.getJSONObject("type").toString();
-            JSONObject data = jsonObject.getJSONObject("data");
-            Map<String, String> args = new HashMap<>();
-            data.forEach((s, o) -> args.put(s, (String) o));
-            return convertToMiraiMessage(bot, contact, type, args);
+        else if (messages instanceof JSONArray jsonArray){
+            MessageChainBuilder msgChainBuilder = new MessageChainBuilder();
+            for (Object jsonObj:jsonArray) {
+                var type = ((JSONObject)jsonObj).getJSONObject("type").toString();
+                JSONObject data = ((JSONObject)jsonObj).getJSONObject("data");
+                Map<String, String> args = new HashMap<>();
+                data.forEach((s, o) -> args.put(s, (String) o));
+                msgChainBuilder.append(convertToMiraiMessage(bot, contact, type, args));
+            }
+            return msgChainBuilder.build();
         }
-        else return MSG_EMPTY;
+        else return null;
     }
 
 
@@ -202,7 +182,7 @@ public class OnebotMsgParser {
                             OneBotMirai.logger.debug(String.format("无法找到群员：%s", args.get("qq")));
                             return MSG_EMPTY;
                         } else {
-                           return new At(member.getId());
+                            return new At(member.getId());
                         }
                     }
                 }
@@ -210,11 +190,22 @@ public class OnebotMsgParser {
             case "face" -> {
                 return new Face(Integer.parseInt(args.get("id")));
             }
+            case "text" -> {
+                return new PlainText(args.get("text"));
+            }
             case "emoji" -> {
                 return new PlainText(new String(Character.toChars(Integer.parseInt(args.get("id")))));
             }
             case "image" -> {
-               // return tryResolveMedia("image", contact, args);
+                String file_url = args.get("file");
+                if(file_url.startsWith("base64://")){
+                    String base64_url = file_url.substring(9);
+                    Decoder decoder = Base64.getDecoder();
+                    byte[] bytes = decoder.decode(base64_url);
+                    Image img = contact.uploadImage(ExternalResource.create(bytes));
+                    return img;
+                }
+                return new PlainText("图片:"+file_url);
             }
             case "share" -> {
                 return RichMessage.share(
