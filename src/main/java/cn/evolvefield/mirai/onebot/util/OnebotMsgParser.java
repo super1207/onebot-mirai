@@ -139,18 +139,13 @@ public class OnebotMsgParser {
 
     private static MessageChain textToMessageInternal(Bot bot, Contact contact, Object messages){
         if (messages instanceof String msgs){
-            //OneBotMirai.logger.warning("字符串消息");
             MessageChainBuilder msgChainBuilder = new MessageChainBuilder();
             JSONArray jsonArray = stringToMsgChain(msgs);
             for (Object msg:jsonArray) {
-
                 Message msg_t = convertToMiraiMessage(bot,contact, (String) ((JSONObject)msg).get("type"), (Map<String, String>) ((JSONObject)msg).get("data"));
-                //OneBotMirai.logger.warning("增加:"+msg_t);
                 msgChainBuilder.append(msg_t);
             }
-            var msgChain = msgChainBuilder.build();
-            //OneBotMirai.logger.warning("返回："+msgChain);
-            return msgChain;
+            return msgChainBuilder.build();
         }
         else if (messages instanceof JSONArray jsonArray){
             MessageChainBuilder msgChainBuilder = new MessageChainBuilder();
@@ -199,11 +194,7 @@ public class OnebotMsgParser {
             case "image" -> {
                 String file_url = args.get("file");
                 if(file_url.startsWith("base64://")){
-                    String base64_url = file_url.substring(9);
-                    Decoder decoder = Base64.getDecoder();
-                    byte[] bytes = decoder.decode(base64_url);
-                    Image img = contact.uploadImage(ExternalResource.create(bytes));
-                    return img;
+                    return contact.uploadImage(ExternalResource.create(Base64.getDecoder().decode(file_url.substring(9))));
                 }
                 return new PlainText("图片:"+file_url);
             }
