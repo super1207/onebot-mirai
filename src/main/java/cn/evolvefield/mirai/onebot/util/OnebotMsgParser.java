@@ -9,6 +9,12 @@ import net.mamoe.mirai.contact.Group;
 import net.mamoe.mirai.message.data.*;
 import net.mamoe.mirai.utils.ExternalResource;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -137,7 +143,7 @@ public class OnebotMsgParser {
         return map;
     }
 
-    private static MessageChain textToMessageInternal(Bot bot, Contact contact, Object messages){
+    private static MessageChain textToMessageInternal(Bot bot, Contact contact, Object messages) {
         if (messages instanceof String msgs){
             MessageChainBuilder msgChainBuilder = new MessageChainBuilder();
             JSONArray jsonArray = stringToMsgChain(msgs);
@@ -159,6 +165,18 @@ public class OnebotMsgParser {
             return msgChainBuilder.build();
         }
         else return null;
+    }
+
+    private static byte[] readInputStream(InputStream inputStream)
+            throws IOException {
+        byte[] buffer = new byte[1024];
+        int len = 0;
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        while ((len = inputStream.read(buffer)) != -1) {
+            bos.write(buffer, 0, len);
+        }
+        bos.close();
+        return bos.toByteArray();
     }
 
 
@@ -195,6 +213,17 @@ public class OnebotMsgParser {
                 String file_url = args.get("file");
                 if(file_url.startsWith("base64://")){
                     return contact.uploadImage(ExternalResource.create(Base64.getDecoder().decode(file_url.substring(9))));
+                }else if(file_url.startsWith("http://") || file_url.startsWith("https://")) {
+                    URL url = null;
+                    try {
+                        url = new URL(file_url);
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        InputStream inputStream = conn.getInputStream();
+                        byte[] getData = readInputStream(inputStream);
+                        return contact.uploadImage(ExternalResource.create(getData));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
                 }
                 return new PlainText("图片:"+file_url);
             }
