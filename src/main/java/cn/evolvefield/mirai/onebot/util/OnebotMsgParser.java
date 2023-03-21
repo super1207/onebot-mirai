@@ -92,7 +92,7 @@ public class OnebotMsgParser {
                 var params = new JSONObject();
                 if (matcher == null) {
                     object.put("type","text");
-                    params.put("text", s);
+                    params.put("text", unescape(s));
                 } else {
                     object.put("type", matcher.group(1));
                     Arrays.stream(matcher.group(2).split(",")).filter(args -> !args.isEmpty()).forEach(args -> {
