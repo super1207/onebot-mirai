@@ -98,7 +98,7 @@ public class OnebotMsgParser {
                 var params = new JSONObject();
                 if (matcher == null) {
                     object.put("type","text");
-                    params.put("text", unescape(s));
+                    params.put("text", unescape_t(s));
                 } else {
                     object.put("type", matcher.group(1));
                     Arrays.stream(matcher.group(2).split(",")).filter(args -> !args.isEmpty()).forEach(args -> {
@@ -120,8 +120,8 @@ public class OnebotMsgParser {
     private static String escape(String msg){
         return msg.replace("&", "&amp;")
                 .replace("[", "&#91;")
-                .replace("]", "&#93;")
-                .replace(",", "&#44;");
+                .replace("]", "&#93;");
+//                .replace(",", "&#44;");
     }
 
     private static String unescape(String msg){
@@ -129,6 +129,12 @@ public class OnebotMsgParser {
                 .replace("&#91;", "[")
                 .replace("&#93;", "]")
                 .replace("&#44;", ",");
+    }
+
+    private static String unescape_t(String msg){
+        return msg.replace("&amp;", "&")
+                .replace("&#91;", "[")
+                .replace("&#93;", "]");
     }
 
     private static HashMap<String, String> toMap(String msg){
